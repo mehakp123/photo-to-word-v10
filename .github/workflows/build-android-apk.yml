@@ -1,0 +1,54 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Verify v10 files are present
+        run: |
+          grep -q "APP_VERSION_v10_NATIVE_SAVE_BLUETOOTH" www/index.html
+          grep -q "Bluetooth Word file" www/index.html
+          grep -q "Save / Share Word file" www/index.html
+
+      - name: Install Capacitor dependencies
+        run: npm install
+
+      - name: Create fresh Android project
+        run: |
+          rm -rf android
+          npx cap add android
+          npx cap sync android
+          grep -q "APP_VERSION_v10_NATIVE_SAVE_BLUETOOTH" android/app/src/main/assets/public/index.html
+          grep -q "Bluetooth Word file" android/app/src/main/assets/public/index.html
+
+      - name: Build debug APK
+        run: |
+          cd android
+          chmod +x ./gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Photo-to-Word-v10-Native-Save-Bluetooth-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk

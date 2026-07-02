@@ -1,0 +1,6 @@
+{
+  "appId": "com.mehak.phototoword",
+  "appName": "Photo to Word",
+  "webDir": "www",
+  "bundledWebRuntime": false
+}
