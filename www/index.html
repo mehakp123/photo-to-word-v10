@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Photo to Word v10 - Native Save + Bluetooth</title>
+  <title>Photo to Word v11 - Direct Save + Bluetooth</title>
   <style>
     :root {
       --bg: #f4f7fb;
@@ -343,18 +343,18 @@
        If they fail to load, the app still falls back to the built-in Word generator. -->
   <script defer src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<!-- APP_VERSION_v10_NATIVE_SAVE_BLUETOOTH -->
+<!-- APP_VERSION_v11_DIRECT_SAVE_BLUETOOTH -->
 </head>
 <body>
   <header>
     <h1>Photo to Word</h1>
-    <p>v10 Native Save + Bluetooth. Upload photos, edit them, then create an editable A4 Word file with movable Square-layout pictures.</p>
+    <p>v11 Direct Save + Bluetooth. Save Word as .docx directly and save photos directly into a phone Pictures folder.</p>
   </header>
 
   <main>
     <section class="card no-print">
       <h2>1) Upload photos</h2>
-      <div class="status"><strong>APP VERSION:</strong> v10 Native Save + Bluetooth. If you do not see Bluetooth buttons below, the old APK is still installed.</div>
+      <div class="status"><strong>APP VERSION:</strong> v11 Direct Save + Bluetooth. Saves real .docx and .jpg files directly; Bluetooth buttons only share.</div>
       <input id="fileInput" type="file" accept="image/*" multiple />
       <p class="hint">Tip: select all required photos together. New photos will be resized automatically using the settings below.</p>
 
@@ -393,12 +393,11 @@
       </div>
 
       <div class="buttons">
-        <button id="wordBtn">Save / Share Word file</button>
-        <button id="zipBtn" class="secondary">Save / Share pictures ZIP</button>
-        <button id="bundleZipBtn" class="secondary">Save / Share Word + pictures ZIP</button>
-        <button id="btWordBtn">Bluetooth Word file</button>
-        <button id="btZipBtn" class="secondary">Bluetooth pictures ZIP</button>
-        <button id="btBundleZipBtn" class="secondary">Bluetooth Word + pictures ZIP</button>
+        <button id="saveWordBtn">Save Word file</button>
+        <button id="savePicturesBtn" class="secondary">Save pictures to folder</button>
+        <button id="shareWordBtn">Bluetooth Word file</button>
+        <button id="sharePicturesBtn" class="secondary">Bluetooth pictures</button>
+        <button id="shareBundleZipBtn" class="secondary">Bluetooth Word + pictures ZIP</button>
         <button id="clearBtn" class="danger">Clear all photos</button>
       </div>
 
@@ -407,14 +406,14 @@
       </div>
 
       <div class="print-note">
-        <strong>Android app save/share:</strong> the app now uses Android native sharing instead of browser download links. For normal saving, choose Files / Drive / Word from the menu. For Bluetooth, tap a Bluetooth button and select Bluetooth from the Android share sheet.
+        <strong>Direct save:</strong> Save Word creates a real <strong>.docx</strong> file in <strong>Downloads/Photo to Word</strong>. Save pictures creates real <strong>.jpg</strong> files in a folder under <strong>Pictures</strong>, using the folder name you type.
       </div>
 
       <div class="print-note">
-        <strong>Bluetooth note:</strong> Android does not allow an app to force Bluetooth automatically without showing the system share screen. The Bluetooth buttons prepare the correct Word/ZIP file and open the native Android share menu, where Bluetooth should appear if enabled on your phone.
+        <strong>Bluetooth:</strong> Share buttons only open the Android share screen for Bluetooth. Android still requires you to select Bluetooth/device manually. ZIP is used only for sharing Word + pictures together.
       </div>
 
-      <div id="status" class="status">Ready. Upload images to start. Version v10 Native Save + Bluetooth.</div>
+      <div id="status" class="status">Ready. Upload images to start. Version v11 Direct Save + Bluetooth.</div>
     </section>
 
     <section class="card no-print">
@@ -643,7 +642,7 @@
       }
       fileInput.value = '';
       renderGallery();
-      setStatus(`Done. ${items.length} image(s) ready. Word output uses Square movable picture layout. Use Save/Share or Bluetooth buttons to export files.`);
+      setStatus(`Done. ${items.length} image(s) ready. Save Word directly, save pictures directly to a folder, or share by Bluetooth.`);
     });
 
     function renderGallery() {
@@ -1056,7 +1055,11 @@
     });
 
     function isNativeAndroidApp() {
-      return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+      return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) || !!window.AndroidFileBridge;
+    }
+
+    function getAndroidBridge() {
+      return window.AndroidFileBridge || null;
     }
 
     function blobToBase64Plain(blob) {
@@ -1071,49 +1074,21 @@
       });
     }
 
-    async function saveOrShareNative(blob, fileName, preferBluetooth = false) {
-      const plugins = window.Capacitor && window.Capacitor.Plugins ? window.Capacitor.Plugins : {};
-      const Filesystem = plugins.Filesystem;
-      const Share = plugins.Share;
-      if (!Filesystem || !Share) {
-        throw new Error('Native save/share plugins are not available. Rebuild the APK with @capacitor/filesystem and @capacitor/share.');
-      }
-
-      const safeName = cleanName(fileName).replace(/\s+/g, '_');
-      const path = `photo_to_word/${Date.now()}_${safeName}`;
-      const base64 = await blobToBase64Plain(blob);
-      const writeResult = await Filesystem.writeFile({
-        path,
-        data: base64,
-        directory: 'CACHE',
-        recursive: true
-      });
-
-      await Share.share({
-        title: fileName,
-        text: preferBluetooth
-          ? 'Select Bluetooth from the Android share screen to send this file.'
-          : 'Choose Save to Files, Word, Drive, WhatsApp, Bluetooth, or any app to save/share this file.',
-        url: writeResult.uri,
-        dialogTitle: preferBluetooth ? 'Send by Bluetooth' : 'Save / Share file'
-      });
+    function cleanFileNameKeepExt(name, fallbackExt = '') {
+      let fileName = String(name || 'file').trim().replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/\s+/g, '_');
+      fileName = fileName.replace(/^\.+/, '').replace(/_+/g, '_');
+      if (!fileName) fileName = 'file';
+      if (fallbackExt && !fileName.toLowerCase().endsWith(fallbackExt.toLowerCase())) fileName += fallbackExt;
+      return fileName;
     }
 
-    async function shareOrDownloadBlob(blob, fileName, preferBluetooth = false) {
-      if (isNativeAndroidApp()) {
-        return saveOrShareNative(blob, fileName, preferBluetooth);
-      }
+    function cleanFolderName(name) {
+      let folder = String(name || 'Photo_to_Word').trim().replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/\s+/g, '_');
+      folder = folder.replace(/^\.+/, '').replace(/_+/g, '_');
+      return folder || 'Photo_to_Word';
+    }
 
-      const file = new File([blob], fileName, { type: blob.type || 'application/octet-stream' });
-      if (preferBluetooth && navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({
-          files: [file],
-          title: fileName,
-          text: 'Select Bluetooth if it appears.'
-        });
-        return;
-      }
-
+    async function browserDownloadBlob(blob, fileName) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -1124,20 +1099,78 @@
       setTimeout(() => URL.revokeObjectURL(url), 1500);
     }
 
-    async function downloadBlob(blob, fileName) {
-      return shareOrDownloadBlob(blob, fileName, false);
+    function checkNativeResult(result) {
+      const text = String(result || '');
+      if (text.startsWith('ERROR:')) throw new Error(text.slice(6));
+      return text;
     }
 
-    async function bluetoothBlob(blob, fileName) {
-      return shareOrDownloadBlob(blob, fileName, true);
+    async function saveWordNative(blob, fileName) {
+      fileName = cleanFileNameKeepExt(fileName, '.docx');
+      const bridge = getAndroidBridge();
+      if (!bridge || !bridge.saveWord) {
+        await browserDownloadBlob(blob, fileName);
+        return;
+      }
+      const base64 = await blobToBase64Plain(blob);
+      checkNativeResult(bridge.saveWord(fileName, base64));
     }
 
-    async function buildImageFiles() {
+    async function savePictureNative(blob, folderName, fileName) {
+      fileName = cleanFileNameKeepExt(fileName, '.jpg');
+      folderName = cleanFolderName(folderName);
+      const bridge = getAndroidBridge();
+      if (!bridge || !bridge.savePicture) {
+        await browserDownloadBlob(blob, fileName);
+        return;
+      }
+      const base64 = await blobToBase64Plain(blob);
+      checkNativeResult(bridge.savePicture(folderName, fileName, base64));
+    }
+
+    async function shareFileNative(blob, fileName, mimeType, dialogTitle) {
+      fileName = cleanFileNameKeepExt(fileName, mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ? '.docx' : '');
+      const bridge = getAndroidBridge();
+      if (!bridge || !bridge.shareFile) {
+        const file = new File([blob], fileName, { type: mimeType || blob.type || 'application/octet-stream' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: fileName, text: 'Select Bluetooth if it appears.' });
+          return;
+        }
+        await browserDownloadBlob(blob, fileName);
+        return;
+      }
+      const base64 = await blobToBase64Plain(blob);
+      checkNativeResult(bridge.shareFile(fileName, mimeType || blob.type || 'application/octet-stream', base64, dialogTitle || 'Share file'));
+    }
+
+    async function shareMultipleNative(fileEntries, dialogTitle) {
+      const bridge = getAndroidBridge();
+      if (!bridge || !bridge.shareMultiple) {
+        const files = fileEntries.map(entry => new File([entry.blob], entry.fileName, { type: entry.mimeType }));
+        if (navigator.canShare && navigator.canShare({ files })) {
+          await navigator.share({ files, title: dialogTitle || 'Share files', text: 'Select Bluetooth if it appears.' });
+          return;
+        }
+        throw new Error('Direct multi-file sharing is not available in this browser. Use the Android APK.');
+      }
+      const payload = [];
+      for (const entry of fileEntries) {
+        payload.push({
+          fileName: cleanFileNameKeepExt(entry.fileName, entry.mimeType === 'image/jpeg' ? '.jpg' : ''),
+          mimeType: entry.mimeType || 'application/octet-stream',
+          base64: await blobToBase64Plain(entry.blob)
+        });
+      }
+      checkNativeResult(bridge.shareMultiple(JSON.stringify(payload), dialogTitle || 'Share files'));
+    }
+
+    async function buildImageFileEntries() {
       const files = [];
       for (let i = 0; i < items.length; i++) {
         await refreshOutput(items[i]);
-        const fileName = `resized_${String(i + 1).padStart(2, '0')}_${cleanName(items[i].name)}.jpg`;
-        files.push(new File([items[i].outputBlob], fileName, { type: 'image/jpeg' }));
+        const fileName = cleanFileNameKeepExt(`photo_${String(i + 1).padStart(2, '0')}_${cleanName(items[i].name)}.jpg`, '.jpg');
+        files.push({ fileName, mimeType: 'image/jpeg', blob: items[i].outputBlob });
       }
       return files;
     }
@@ -1146,98 +1179,91 @@
       const zipFiles = [];
       for (let i = 0; i < items.length; i++) {
         await refreshOutput(items[i]);
-        const fileName = `resized_images/resized_${String(i + 1).padStart(2, '0')}_${cleanName(items[i].name)}.jpg`;
+        const fileName = `pictures/photo_${String(i + 1).padStart(2, '0')}_${cleanName(items[i].name)}.jpg`;
         zipFiles.push({ name: fileName, data: items[i].outputBlob });
       }
       if (includeWord) {
         const docxBlob = await createEditableDocxBlob();
-        zipFiles.push({ name: `${getBaseFileName()}_editable.docx`, data: docxBlob });
+        zipFiles.push({ name: `${getBaseFileName()}_square_movable.docx`, data: docxBlob });
       }
       return makeZipBlob(zipFiles, 'application/zip');
     }
 
-    document.getElementById('zipBtn').addEventListener('click', async () => {
+    document.getElementById('savePicturesBtn').addEventListener('click', async () => {
       if (!items.length) return setStatus('Upload images first.');
+      const folderName = prompt('Folder name inside Pictures:', getBaseFileName());
+      if (!folderName) return setStatus('Save cancelled.');
       try {
-        setStatus('Creating ZIP with resized pictures...');
-        const fileName = `${getBaseFileName()}_pictures.zip`;
-        const zipBlob = await createImagesZip(false);
-        await downloadBlob(zipBlob, fileName);
-        setStatus(isNativeAndroidApp() ? 'Pictures ZIP prepared. Select where to save/share it from the Android menu.' : 'Pictures ZIP downloaded.');
+        const folder = cleanFolderName(folderName);
+        setStatus(`Saving pictures to Pictures/${folder}...`);
+        for (let i = 0; i < items.length; i++) {
+          await refreshOutput(items[i]);
+          const fileName = cleanFileNameKeepExt(`photo_${String(i + 1).padStart(2, '0')}_${cleanName(items[i].name)}.jpg`, '.jpg');
+          await savePictureNative(items[i].outputBlob, folder, fileName);
+          setStatus(`Saved ${i + 1}/${items.length} pictures to Pictures/${folder}...`);
+        }
+        setStatus(`Done. Pictures saved as normal JPG files in Pictures/${folder}. Open Gallery / Photos / My Files to view them.`);
       } catch (err) {
         console.error(err);
-        setStatus(err.message || 'Could not create pictures ZIP.');
+        setStatus(err.message || 'Could not save pictures.');
       }
     });
 
-    document.getElementById('bundleZipBtn').addEventListener('click', async () => {
+    document.getElementById('saveWordBtn').addEventListener('click', async () => {
       if (!items.length) return setStatus('Upload images first.');
+      const suggestedName = `${getBaseFileName()}_square_movable.docx`;
+      const typedName = prompt('Word file name:', suggestedName);
+      if (!typedName) return setStatus('Save cancelled.');
       try {
-        setStatus('Creating ZIP with Word file and resized pictures...');
-        const fileName = `${getBaseFileName()}_word_and_pictures.zip`;
-        const zipBlob = await createImagesZip(true);
-        await downloadBlob(zipBlob, fileName);
-        setStatus(isNativeAndroidApp() ? 'Word + pictures ZIP prepared. Select where to save/share it from the Android menu.' : 'Word + pictures ZIP downloaded.');
-      } catch (err) {
-        console.error(err);
-        setStatus(err.message || 'Could not create Word + pictures ZIP.');
-      }
-    });
-
-    document.getElementById('wordBtn').addEventListener('click', async () => {
-      if (!items.length) return setStatus('Upload images first.');
-      try {
-        setStatus('Creating Word file with Square movable picture layout...');
-        const fileName = `${getBaseFileName()}_square_movable.docx`;
+        const fileName = cleanFileNameKeepExt(typedName, '.docx');
+        setStatus('Creating and saving Word file...');
         const blob = await createEditableDocxBlob();
-        await downloadBlob(blob, fileName);
-        setStatus(isNativeAndroidApp() ? 'Word file prepared. Select where to save/share it from the Android menu.' : 'Word file downloaded. Each photo uses Square layout, so you can select and move it anywhere in Word.');
+        await saveWordNative(blob, fileName);
+        setStatus(`Done. Word file saved as ${fileName} in Downloads/Photo to Word.`);
       } catch (err) {
         console.error(err);
-        setStatus(err.message || 'Could not create Word file.');
+        setStatus(err.message || 'Could not save Word file.');
       }
     });
 
-
-    document.getElementById('btWordBtn').addEventListener('click', async () => {
+    document.getElementById('shareWordBtn').addEventListener('click', async () => {
       if (!items.length) return setStatus('Upload images first.');
       try {
         setStatus('Preparing Word file for Bluetooth...');
         const fileName = `${getBaseFileName()}_square_movable.docx`;
         const blob = await createEditableDocxBlob();
-        await bluetoothBlob(blob, fileName);
+        await shareFileNative(blob, fileName, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'Send Word file by Bluetooth');
         setStatus('Word file ready. Select Bluetooth from the Android share screen.');
       } catch (err) {
         console.error(err);
-        setStatus(err.message || 'Could not prepare Word file for Bluetooth.');
+        setStatus(err.message || 'Could not share Word file.');
       }
     });
 
-    document.getElementById('btZipBtn').addEventListener('click', async () => {
+    document.getElementById('sharePicturesBtn').addEventListener('click', async () => {
       if (!items.length) return setStatus('Upload images first.');
       try {
-        setStatus('Preparing pictures ZIP for Bluetooth...');
-        const fileName = `${getBaseFileName()}_pictures.zip`;
-        const zipBlob = await createImagesZip(false);
-        await bluetoothBlob(zipBlob, fileName);
-        setStatus('Pictures ZIP ready. Select Bluetooth from the Android share screen.');
+        setStatus('Preparing pictures for Bluetooth...');
+        const files = await buildImageFileEntries();
+        await shareMultipleNative(files, 'Send pictures by Bluetooth');
+        setStatus('Pictures ready. Select Bluetooth from the Android share screen.');
       } catch (err) {
         console.error(err);
-        setStatus(err.message || 'Could not prepare pictures ZIP for Bluetooth.');
+        setStatus(err.message || 'Could not share pictures.');
       }
     });
 
-    document.getElementById('btBundleZipBtn').addEventListener('click', async () => {
+    document.getElementById('shareBundleZipBtn').addEventListener('click', async () => {
       if (!items.length) return setStatus('Upload images first.');
       try {
-        setStatus('Preparing Word + pictures ZIP for Bluetooth...');
+        setStatus('Creating ZIP for Bluetooth sharing...');
         const fileName = `${getBaseFileName()}_word_and_pictures.zip`;
         const zipBlob = await createImagesZip(true);
-        await bluetoothBlob(zipBlob, fileName);
-        setStatus('Word + pictures ZIP ready. Select Bluetooth from the Android share screen.');
+        await shareFileNative(zipBlob, fileName, 'application/zip', 'Send Word + pictures ZIP by Bluetooth');
+        setStatus('ZIP ready. Select Bluetooth from the Android share screen.');
       } catch (err) {
         console.error(err);
-        setStatus(err.message || 'Could not prepare Word + pictures ZIP for Bluetooth.');
+        setStatus(err.message || 'Could not share Word + pictures ZIP.');
       }
     });
 

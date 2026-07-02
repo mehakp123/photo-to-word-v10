@@ -1,8 +1,8 @@
 {
-  "name": "photo-to-word-android",
-  "version": "1.0.10",
+  "name": "photo-to-word-android-v11",
+  "version": "1.0.11",
   "private": true,
-  "description": "Photo to Word Android app with native Android save/share and Bluetooth share buttons.",
+  "description": "Photo to Word Android app with direct native save for DOCX/JPG and Bluetooth sharing.",
   "scripts": {
     "sync": "cap sync android",
     "build:android": "cd android && ./gradlew assembleDebug"
@@ -10,9 +10,7 @@
   "dependencies": {
     "@capacitor/android": "latest",
     "@capacitor/cli": "latest",
-    "@capacitor/core": "latest",
-    "@capacitor/filesystem": "latest",
-    "@capacitor/share": "latest"
+    "@capacitor/core": "latest"
   },
   "devDependencies": {}
 }

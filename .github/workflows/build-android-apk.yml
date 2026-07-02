@@ -24,11 +24,11 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - name: Verify v10 files are present
+      - name: Verify v11 files are present
         run: |
-          grep -q "APP_VERSION_v10_NATIVE_SAVE_BLUETOOTH" www/index.html
-          grep -q "Bluetooth Word file" www/index.html
-          grep -q "Save / Share Word file" www/index.html
+          grep -q "APP_VERSION_v11_DIRECT_SAVE_BLUETOOTH" www/index.html
+          grep -q "Save pictures to folder" www/index.html
+          grep -q "Bluetooth pictures" www/index.html
 
       - name: Install Capacitor dependencies
         run: npm install
@@ -38,8 +38,293 @@ jobs:
           rm -rf android
           npx cap add android
           npx cap sync android
-          grep -q "APP_VERSION_v10_NATIVE_SAVE_BLUETOOTH" android/app/src/main/assets/public/index.html
-          grep -q "Bluetooth Word file" android/app/src/main/assets/public/index.html
+          grep -q "APP_VERSION_v11_DIRECT_SAVE_BLUETOOTH" android/app/src/main/assets/public/index.html
+
+      - name: Add native Android save and share bridge
+        run: |
+          mkdir -p android/app/src/main/java/com/mehak/phototoword
+          cat > android/app/src/main/java/com/mehak/phototoword/MainActivity.java <<'JAVA'
+          package com.mehak.phototoword;
+
+          import android.os.Bundle;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  if (getBridge() != null && getBridge().getWebView() != null) {
+                      getBridge().getWebView().addJavascriptInterface(new AndroidFileBridge(this), "AndroidFileBridge");
+                  }
+              }
+          }
+          JAVA
+
+          cat > android/app/src/main/java/com/mehak/phototoword/AndroidFileBridge.java <<'JAVA'
+          package com.mehak.phototoword;
+
+          import android.app.Activity;
+          import android.content.ContentResolver;
+          import android.content.ContentValues;
+          import android.content.Intent;
+          import android.media.MediaScannerConnection;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Environment;
+          import android.provider.MediaStore;
+          import android.util.Base64;
+          import android.webkit.JavascriptInterface;
+
+          import androidx.core.content.FileProvider;
+
+          import org.json.JSONArray;
+          import org.json.JSONObject;
+
+          import java.io.File;
+          import java.io.FileOutputStream;
+          import java.io.IOException;
+          import java.io.OutputStream;
+          import java.util.ArrayList;
+
+          public class AndroidFileBridge {
+              private final Activity activity;
+
+              public AndroidFileBridge(Activity activity) {
+                  this.activity = activity;
+              }
+
+              @JavascriptInterface
+              public String saveWord(String fileName, String base64) {
+                  try {
+                      String safeName = ensureExtension(sanitizeFileName(fileName), ".docx");
+                      byte[] data = decodeBase64(base64);
+                      Uri uri = saveToDownloads(safeName, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", data);
+                      return "OK:" + uri.toString();
+                  } catch (Exception e) {
+                      return "ERROR:" + safeError(e);
+                  }
+              }
+
+              @JavascriptInterface
+              public String savePicture(String folderName, String fileName, String base64) {
+                  try {
+                      String safeFolder = sanitizeFolderName(folderName);
+                      String safeName = ensureExtension(sanitizeFileName(fileName), ".jpg");
+                      byte[] data = decodeBase64(base64);
+                      Uri uri = saveToPictures(safeFolder, safeName, data);
+                      return "OK:" + uri.toString();
+                  } catch (Exception e) {
+                      return "ERROR:" + safeError(e);
+                  }
+              }
+
+              @JavascriptInterface
+              public String shareFile(String fileName, String mimeType, String base64, String dialogTitle) {
+                  try {
+                      String safeName = sanitizeFileName(fileName);
+                      if (mimeType == null || mimeType.trim().isEmpty()) mimeType = "application/octet-stream";
+                      byte[] data = decodeBase64(base64);
+                      Uri uri = writeCacheFile(safeName, data);
+                      Intent intent = new Intent(Intent.ACTION_SEND);
+                      intent.setType(mimeType);
+                      intent.putExtra(Intent.EXTRA_STREAM, uri);
+                      intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                      String title = (dialogTitle == null || dialogTitle.trim().isEmpty()) ? "Share file" : dialogTitle;
+                      activity.runOnUiThread(() -> activity.startActivity(Intent.createChooser(intent, title)));
+                      return "OK";
+                  } catch (Exception e) {
+                      return "ERROR:" + safeError(e);
+                  }
+              }
+
+              @JavascriptInterface
+              public String shareMultiple(String filesJson, String dialogTitle) {
+                  try {
+                      JSONArray arr = new JSONArray(filesJson);
+                      ArrayList<Uri> uris = new ArrayList<>();
+                      String commonMime = null;
+                      for (int i = 0; i < arr.length(); i++) {
+                          JSONObject obj = arr.getJSONObject(i);
+                          String fileName = sanitizeFileName(obj.optString("fileName", "file_" + (i + 1)));
+                          String mimeType = obj.optString("mimeType", "application/octet-stream");
+                          byte[] data = decodeBase64(obj.optString("base64", ""));
+                          uris.add(writeCacheFile(fileName, data));
+                          if (commonMime == null) commonMime = mimeType;
+                          else if (!commonMime.equals(mimeType)) commonMime = "*/*";
+                      }
+                      if (commonMime == null) commonMime = "*/*";
+                      Intent intent = new Intent(Intent.ACTION_SEND_MULTIPLE);
+                      intent.setType(commonMime);
+                      intent.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+                      intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                      String title = (dialogTitle == null || dialogTitle.trim().isEmpty()) ? "Share files" : dialogTitle;
+                      activity.runOnUiThread(() -> activity.startActivity(Intent.createChooser(intent, title)));
+                      return "OK";
+                  } catch (Exception e) {
+                      return "ERROR:" + safeError(e);
+                  }
+              }
+
+              private Uri saveToDownloads(String fileName, String mimeType, byte[] data) throws IOException {
+                  ContentResolver resolver = activity.getContentResolver();
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                      ContentValues values = new ContentValues();
+                      values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
+                      values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
+                      values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Photo to Word");
+                      values.put(MediaStore.MediaColumns.IS_PENDING, 1);
+                      Uri uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                      if (uri == null) throw new IOException("Could not create Downloads file");
+                      try (OutputStream out = resolver.openOutputStream(uri)) {
+                          if (out == null) throw new IOException("Could not open Downloads file");
+                          out.write(data);
+                      }
+                      values.clear();
+                      values.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                      resolver.update(uri, values, null, null);
+                      return uri;
+                  } else {
+                      File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Photo to Word");
+                      if (!dir.exists() && !dir.mkdirs()) throw new IOException("Could not create Downloads folder");
+                      File file = new File(dir, fileName);
+                      try (FileOutputStream out = new FileOutputStream(file)) { out.write(data); }
+                      scanFile(file, mimeType);
+                      return Uri.fromFile(file);
+                  }
+              }
+
+              private Uri saveToPictures(String folderName, String fileName, byte[] data) throws IOException {
+                  ContentResolver resolver = activity.getContentResolver();
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                      ContentValues values = new ContentValues();
+                      values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
+                      values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+                      values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/" + folderName);
+                      values.put(MediaStore.Images.Media.IS_PENDING, 1);
+                      Uri uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+                      if (uri == null) throw new IOException("Could not create picture file");
+                      try (OutputStream out = resolver.openOutputStream(uri)) {
+                          if (out == null) throw new IOException("Could not open picture file");
+                          out.write(data);
+                      }
+                      values.clear();
+                      values.put(MediaStore.Images.Media.IS_PENDING, 0);
+                      resolver.update(uri, values, null, null);
+                      return uri;
+                  } else {
+                      File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), folderName);
+                      if (!dir.exists() && !dir.mkdirs()) throw new IOException("Could not create Pictures folder");
+                      File file = new File(dir, fileName);
+                      try (FileOutputStream out = new FileOutputStream(file)) { out.write(data); }
+                      scanFile(file, "image/jpeg");
+                      return Uri.fromFile(file);
+                  }
+              }
+
+              private Uri writeCacheFile(String fileName, byte[] data) throws IOException {
+                  File dir = new File(activity.getCacheDir(), "share_files");
+                  if (!dir.exists() && !dir.mkdirs()) throw new IOException("Could not create cache folder");
+                  File file = new File(dir, sanitizeFileName(fileName));
+                  try (FileOutputStream out = new FileOutputStream(file)) { out.write(data); }
+                  return FileProvider.getUriForFile(activity, activity.getPackageName() + ".fileprovider", file);
+              }
+
+              private byte[] decodeBase64(String base64) {
+                  if (base64 == null) base64 = "";
+                  int comma = base64.indexOf(',');
+                  if (comma >= 0) base64 = base64.substring(comma + 1);
+                  return Base64.decode(base64, Base64.DEFAULT);
+              }
+
+              private String sanitizeFileName(String name) {
+                  if (name == null) name = "file";
+                  String out = name.trim().replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_").replaceAll("\\s+", "_");
+                  out = out.replaceAll("^\\.+", "").replaceAll("_+", "_");
+                  if (out.isEmpty()) out = "file";
+                  if (out.length() > 160) out = out.substring(0, 160);
+                  return out;
+              }
+
+              private String sanitizeFolderName(String name) {
+                  String out = sanitizeFileName(name);
+                  out = out.replaceAll("\\.[A-Za-z0-9]{1,8}$", "");
+                  if (out.isEmpty()) out = "Photo_to_Word";
+                  return out;
+              }
+
+              private String ensureExtension(String fileName, String ext) {
+                  if (ext == null || ext.isEmpty()) return fileName;
+                  if (!fileName.toLowerCase().endsWith(ext.toLowerCase())) return fileName + ext;
+                  return fileName;
+              }
+
+              private void scanFile(File file, String mimeType) {
+                  MediaScannerConnection.scanFile(activity, new String[]{file.getAbsolutePath()}, new String[]{mimeType}, null);
+              }
+
+              private String safeError(Exception e) {
+                  String msg = e.getMessage();
+                  return msg == null ? e.getClass().getSimpleName() : msg.replace('\n', ' ');
+              }
+          }
+          JAVA
+
+          mkdir -p android/app/src/main/res/xml
+          cat > android/app/src/main/res/xml/file_paths.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths xmlns:android="http://schemas.android.com/apk/res/android">
+              <cache-path name="cache" path="." />
+              <files-path name="files" path="." />
+              <external-cache-path name="external_cache" path="." />
+          </paths>
+          XML
+
+          cat > android/app/src/main/AndroidManifest.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="@string/app_name"
+                  android:roundIcon="@mipmap/ic_launcher_round"
+                  android:supportsRtl="true"
+                  android:theme="@style/AppTheme"
+                  android:usesCleartextTraffic="true">
+
+                  <activity
+                      android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
+                      android:name=".MainActivity"
+                      android:label="@string/title_activity_main"
+                      android:theme="@style/AppTheme.NoActionBarLaunch"
+                      android:launchMode="singleTask"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <provider
+                      android:name="androidx.core.content.FileProvider"
+                      android:authorities="${applicationId}.fileprovider"
+                      android:exported="false"
+                      android:grantUriPermissions="true">
+                      <meta-data
+                          android:name="android.support.FILE_PROVIDER_PATHS"
+                          android:resource="@xml/file_paths" />
+                  </provider>
+              </application>
+          </manifest>
+          XML
+
+      - name: Verify native bridge and v11 asset copied
+        run: |
+          grep -q "AndroidFileBridge" android/app/src/main/java/com/mehak/phototoword/MainActivity.java
+          grep -q "savePicture" android/app/src/main/java/com/mehak/phototoword/AndroidFileBridge.java
+          grep -q "APP_VERSION_v11_DIRECT_SAVE_BLUETOOTH" android/app/src/main/assets/public/index.html
 
       - name: Build debug APK
         run: |
@@ -50,5 +335,5 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Photo-to-Word-v10-Native-Save-Bluetooth-APK
+          name: Photo-to-Word-v11-Direct-Save-Bluetooth-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
