@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Photo to Word v11 - Direct Save + Bluetooth</title>
+  <title>Photo to Word v12 - Faster Simple Layout</title>
   <style>
     :root {
       --bg: #f4f7fb;
@@ -323,11 +323,51 @@
       border-top: 1px solid var(--border);
     }
 
+
+
+    .bluetooth-options {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 9px;
+      margin-top: 9px;
+      padding: 10px;
+      border: 1px dashed var(--border);
+      border-radius: 14px;
+      background: #f8fbff;
+    }
+
+    .pannu-signature {
+      text-align: center;
+      margin: 22px 0 8px;
+      height: 70px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .pannu-signature span {
+      display: inline-block;
+      font-size: clamp(30px, 11vw, 66px);
+      font-weight: 1000;
+      letter-spacing: 0.16em;
+      color: #0f766e;
+      text-shadow: 0 0 8px rgba(15,118,110,.45), 0 0 20px rgba(15,118,110,.35), 0 0 34px rgba(15,118,110,.25);
+      animation: pannuGlowMove 2.6s ease-in-out infinite;
+    }
+
+    @keyframes pannuGlowMove {
+      0% { transform: translateX(-10px) scale(0.96) rotate(-1deg); opacity: .82; filter: brightness(1); }
+      50% { transform: translateX(10px) scale(1.08) rotate(1deg); opacity: 1; filter: brightness(1.35); }
+      100% { transform: translateX(-10px) scale(0.96) rotate(-1deg); opacity: .82; filter: brightness(1); }
+    }
+
     @media (max-width: 620px) {
       main { padding: 10px; }
       .card { padding: 12px; border-radius: 16px; }
       .field, .field.third { grid-column: span 12; }
       .buttons { grid-template-columns: 1fr; }
+      .bluetooth-options { grid-template-columns: 1fr; }
       .editor-tools { grid-template-columns: 1fr; }
       .toolbar-line > * { grid-column: span 12; }
       .gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -343,18 +383,17 @@
        If they fail to load, the app still falls back to the built-in Word generator. -->
   <script defer src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<!-- APP_VERSION_v11_DIRECT_SAVE_BLUETOOTH -->
+<!-- APP_VERSION_v13_SAVE_OPTIONS_BLUETOOTH -->
 </head>
 <body>
   <header>
     <h1>Photo to Word</h1>
-    <p>v11 Direct Save + Bluetooth. Save Word as .docx directly and save photos directly into a phone Pictures folder.</p>
+    <p>Resize photos, create an editable Word file, save pictures to phone, or send files by Bluetooth.</p>
   </header>
 
   <main>
     <section class="card no-print">
       <h2>1) Upload photos</h2>
-      <div class="status"><strong>APP VERSION:</strong> v11 Direct Save + Bluetooth. Saves real .docx and .jpg files directly; Bluetooth buttons only share.</div>
       <input id="fileInput" type="file" accept="image/*" multiple />
       <p class="hint">Tip: select all required photos together. New photos will be resized automatically using the settings below.</p>
 
@@ -378,42 +417,30 @@
           </select>
         </div>
         <div class="field third">
-          <label for="wordFitMode">Word image layout</label>
-          <select id="wordFitMode">
-            <option value="smartBalanced" selected>SMART full page - least white space</option>
-            <option value="smartFit">SMART no crop - least white space</option>
-            <option value="fit">Fixed 6 boxes - no crop</option>
-            <option value="cover">Fixed 6 boxes - fill/crop</option>
-          </select>
-        </div>
-        <div class="field third">
           <label for="pageTitle">Word file name</label>
           <input id="pageTitle" type="text" value="A4_Photos_6_Per_Page" />
         </div>
       </div>
 
       <div class="buttons">
-        <button id="saveWordBtn">Save Word file</button>
-        <button id="savePicturesBtn" class="secondary">Save pictures to folder</button>
-        <button id="shareWordBtn">Bluetooth Word file</button>
-        <button id="sharePicturesBtn" class="secondary">Bluetooth pictures</button>
-        <button id="shareBundleZipBtn" class="secondary">Bluetooth Word + pictures ZIP</button>
+        <button id="toggleSaveBtn">Save</button>
+        <button id="toggleBluetoothBtn" class="secondary">Send via Bluetooth</button>
         <button id="clearBtn" class="danger">Clear all photos</button>
       </div>
 
-      <div class="print-note">
-        <strong>Word picture layout:</strong> every photo is inserted as a separate floating picture with <strong>Square</strong> wrapping. In Microsoft Word you can select any photo, drag it anywhere on the page, resize it, rotate it, or change its wrap/layout.
+      <div id="saveOptions" class="bluetooth-options" style="display:none;">
+        <button id="savePicturesBtn" class="secondary">Pictures</button>
+        <button id="saveWordBtn">Word file</button>
+        <button id="saveBothBtn" class="secondary">Both</button>
       </div>
 
-      <div class="print-note">
-        <strong>Direct save:</strong> Save Word creates a real <strong>.docx</strong> file in <strong>Downloads/Photo to Word</strong>. Save pictures creates real <strong>.jpg</strong> files in a folder under <strong>Pictures</strong>, using the folder name you type.
+      <div id="bluetoothOptions" class="bluetooth-options" style="display:none;">
+        <button id="sharePicturesBtn" class="secondary">Resized pictures</button>
+        <button id="shareWordBtn">Word file</button>
+        <button id="shareBundleZipBtn" class="secondary">Pictures + Word file ZIP</button>
       </div>
 
-      <div class="print-note">
-        <strong>Bluetooth:</strong> Share buttons only open the Android share screen for Bluetooth. Android still requires you to select Bluetooth/device manually. ZIP is used only for sharing Word + pictures together.
-      </div>
-
-      <div id="status" class="status">Ready. Upload images to start. Version v11 Direct Save + Bluetooth.</div>
+      <div id="status" class="status">Ready. Upload images to start.</div>
     </section>
 
     <section class="card no-print">
@@ -425,9 +452,6 @@
 
     <section id="editorWrap" class="card editor-wrap no-print">
       <h2>3) Draw / write on selected image</h2>
-      <div class="print-note">
-        <strong>How editing works:</strong> add text, then drag the white box to move it. Touch and drag the bottom-right handle of the box to resize the white background. Use arrow or ellipse tools to point out items in the image.
-      </div>
 
       <div class="toolbar-line">
         <button id="selectMode" class="secondary small">Move / resize text</button>
@@ -467,6 +491,7 @@
         <canvas id="editCanvas"></canvas>
       </div>
     </section>
+    <div class="pannu-signature no-print"><span>PANNU</span></div>
   </main>
 
   <script>
@@ -554,25 +579,44 @@
 
     async function resizeImageFile(file) {
       const sourceUrl = URL.createObjectURL(file);
+      let source = null;
+      let originalWidth = 0;
+      let originalHeight = 0;
       try {
-        const img = await loadImage(sourceUrl);
+        try {
+          if (window.createImageBitmap) {
+            source = await createImageBitmap(file, { imageOrientation: 'from-image' });
+            originalWidth = source.width;
+            originalHeight = source.height;
+          }
+        } catch (_) {
+          source = null;
+        }
+        if (!source) {
+          source = await loadImage(sourceUrl);
+          originalWidth = source.naturalWidth;
+          originalHeight = source.naturalHeight;
+        }
+
         const maxSide = Number(maxSideEl.value);
-        const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
-        const w = Math.max(1, Math.round(img.naturalWidth * scale));
-        const h = Math.max(1, Math.round(img.naturalHeight * scale));
+        const scale = Math.min(1, maxSide / Math.max(originalWidth, originalHeight));
+        const w = Math.max(1, Math.round(originalWidth * scale));
+        const h = Math.max(1, Math.round(originalHeight * scale));
 
         const out = document.createElement('canvas');
         out.width = w;
         out.height = h;
-        const outCtx = out.getContext('2d');
+        const outCtx = out.getContext('2d', { alpha: false });
         outCtx.fillStyle = '#ffffff';
         outCtx.fillRect(0, 0, w, h);
+        outCtx.imageSmoothingEnabled = true;
         outCtx.imageSmoothingQuality = 'high';
-        outCtx.drawImage(img, 0, 0, w, h);
+        outCtx.drawImage(source, 0, 0, originalWidth, originalHeight, 0, 0, w, h);
 
+        if (source && typeof source.close === 'function') source.close();
         const blob = await canvasToBlob(out, 'image/jpeg', Number(qualityEl.value));
         const dataUrl = await blobToDataURL(blob);
-        return { blob, dataUrl, width: w, height: h, originalWidth: img.naturalWidth, originalHeight: img.naturalHeight };
+        return { blob, dataUrl, width: w, height: h, originalWidth, originalHeight };
       } finally {
         URL.revokeObjectURL(sourceUrl);
       }
@@ -611,11 +655,21 @@
     fileInput.addEventListener('change', async (event) => {
       const files = Array.from(event.target.files || []).filter(f => f.type.startsWith('image/'));
       if (!files.length) return;
-      setStatus(`Processing ${files.length} image(s)...`);
-      for (const file of files) {
+
+      const total = files.length;
+      let completed = 0;
+      let failed = 0;
+      let nextIndex = 0;
+      const results = new Array(total);
+      const concurrency = Math.max(1, Math.min(3, total));
+
+      setStatus(`Processing photos: 0/${total} processed`);
+
+      async function processOne(index) {
+        const file = files[index];
         try {
           const resized = await resizeImageFile(file);
-          const item = {
+          results[index] = {
             id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()),
             originalFile: file,
             name: file.name,
@@ -634,15 +688,29 @@
             shapes: [],
             drawHistory: []
           };
-          items.push(item);
         } catch (err) {
           console.error(err);
-          setStatus(`Could not process ${file.name}. Try another photo.`);
+          failed++;
+        } finally {
+          completed++;
+          setStatus(`Processing photos: ${completed}/${total} processed`);
+          await new Promise(resolve => setTimeout(resolve, 0));
         }
       }
+
+      async function worker() {
+        while (nextIndex < total) {
+          const index = nextIndex++;
+          await processOne(index);
+        }
+      }
+
+      await Promise.all(Array.from({ length: concurrency }, worker));
+      const added = results.filter(Boolean);
+      items.push(...added);
       fileInput.value = '';
       renderGallery();
-      setStatus(`Done. ${items.length} image(s) ready. Save Word directly, save pictures directly to a folder, or share by Bluetooth.`);
+      setStatus(`Complete processing pictures`);
     });
 
     function renderGallery() {
@@ -1189,20 +1257,33 @@
       return makeZipBlob(zipFiles, 'application/zip');
     }
 
+
+    document.getElementById('toggleSaveBtn').addEventListener('click', () => {
+      const box = document.getElementById('saveOptions');
+      if (!box) return;
+      box.style.display = box.style.display === 'none' || !box.style.display ? 'grid' : 'none';
+    });
+
+    document.getElementById('toggleBluetoothBtn').addEventListener('click', () => {
+      const box = document.getElementById('bluetoothOptions');
+      if (!box) return;
+      box.style.display = box.style.display === 'none' || !box.style.display ? 'grid' : 'none';
+    });
+
     document.getElementById('savePicturesBtn').addEventListener('click', async () => {
       if (!items.length) return setStatus('Upload images first.');
       const folderName = prompt('Folder name inside Pictures:', getBaseFileName());
       if (!folderName) return setStatus('Save cancelled.');
       try {
         const folder = cleanFolderName(folderName);
-        setStatus(`Saving pictures to Pictures/${folder}...`);
+        setStatus(`Saving re-sized pictures: 0/${items.length} saved to Pictures/${folder}...`);
         for (let i = 0; i < items.length; i++) {
           await refreshOutput(items[i]);
           const fileName = cleanFileNameKeepExt(`photo_${String(i + 1).padStart(2, '0')}_${cleanName(items[i].name)}.jpg`, '.jpg');
           await savePictureNative(items[i].outputBlob, folder, fileName);
-          setStatus(`Saved ${i + 1}/${items.length} pictures to Pictures/${folder}...`);
+          setStatus(`Saving re-sized pictures: ${i + 1}/${items.length} saved, ${items.length - i - 1} remaining. Folder: Pictures/${folder}`);
         }
-        setStatus(`Done. Pictures saved as normal JPG files in Pictures/${folder}. Open Gallery / Photos / My Files to view them.`);
+        setStatus(`Done. Re-sized pictures saved as normal JPG files in Pictures/${folder}.`);
       } catch (err) {
         console.error(err);
         setStatus(err.message || 'Could not save pictures.');
@@ -1216,13 +1297,40 @@
       if (!typedName) return setStatus('Save cancelled.');
       try {
         const fileName = cleanFileNameKeepExt(typedName, '.docx');
-        setStatus('Creating and saving Word file...');
+        setStatus('Creating and saving Word file in phone...');
         const blob = await createEditableDocxBlob();
         await saveWordNative(blob, fileName);
         setStatus(`Done. Word file saved as ${fileName} in Downloads/Photo to Word.`);
       } catch (err) {
         console.error(err);
         setStatus(err.message || 'Could not save Word file.');
+      }
+    });
+
+    document.getElementById('saveBothBtn').addEventListener('click', async () => {
+      if (!items.length) return setStatus('Upload images first.');
+      const folderName = prompt('Folder name inside Pictures:', getBaseFileName());
+      if (!folderName) return setStatus('Save cancelled.');
+      const suggestedName = `${getBaseFileName()}_square_movable.docx`;
+      const typedName = prompt('Word file name:', suggestedName);
+      if (!typedName) return setStatus('Save cancelled.');
+      try {
+        const folder = cleanFolderName(folderName);
+        const wordFileName = cleanFileNameKeepExt(typedName, '.docx');
+        setStatus(`Saving pictures: 0/${items.length} saved to Pictures/${folder}...`);
+        for (let i = 0; i < items.length; i++) {
+          await refreshOutput(items[i]);
+          const fileName = cleanFileNameKeepExt(`photo_${String(i + 1).padStart(2, '0')}_${cleanName(items[i].name)}.jpg`, '.jpg');
+          await savePictureNative(items[i].outputBlob, folder, fileName);
+          setStatus(`Saving pictures: ${i + 1}/${items.length} saved to Pictures/${folder}`);
+        }
+        setStatus('Creating and saving Word file in phone...');
+        const blob = await createEditableDocxBlob();
+        await saveWordNative(blob, wordFileName);
+        setStatus(`Done. Pictures saved in Pictures/${folder} and Word saved as ${wordFileName} in Downloads/Photo to Word.`);
+      } catch (err) {
+        console.error(err);
+        setStatus(err.message || 'Could not save pictures and Word file.');
       }
     });
 
@@ -1243,10 +1351,10 @@
     document.getElementById('sharePicturesBtn').addEventListener('click', async () => {
       if (!items.length) return setStatus('Upload images first.');
       try {
-        setStatus('Preparing pictures for Bluetooth...');
+        setStatus('Preparing re-sized pictures for Bluetooth...');
         const files = await buildImageFileEntries();
         await shareMultipleNative(files, 'Send pictures by Bluetooth');
-        setStatus('Pictures ready. Select Bluetooth from the Android share screen.');
+        setStatus('Re-sized pictures ready. Select Bluetooth from the Android share screen.');
       } catch (err) {
         console.error(err);
         setStatus(err.message || 'Could not share pictures.');
@@ -1620,7 +1728,7 @@
           card.innerHTML = `<img src="${url}" alt="A4 preview page ${i + 1}"><div class="preview-caption">Page ${i + 1}: ${count} image(s)</div>`;
           a4PreviewEl.appendChild(card);
         }
-        setStatus('Preview ready. SMART full page mode uses variable rows to reduce empty white space. Select SMART no crop if you need every image edge visible.');
+        setStatus('Preview ready. SMART no crop layout is used for least white space without cutting image edges.');
       } catch (err) {
         console.error(err);
         setStatus(err.message || 'Could not create preview.');
@@ -1633,7 +1741,7 @@
       const pageH = A4_PAGE_CANVAS_H;
       const pageMargin = A4_PAGE_MARGIN_PX;
       const gap = A4_IMAGE_GAP_PX;
-      const fitMode = wordFitModeEl ? wordFitModeEl.value : 'smartBalanced';
+      const fitMode = 'smartFit';
 
       for (let start = 0; start < items.length; start += 6) {
         const pageCanvas = document.createElement('canvas');
