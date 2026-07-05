@@ -336,6 +336,53 @@
       background: #f8fbff;
     }
 
+    .action-dropdown {
+      position: relative;
+      margin-top: 12px;
+      padding: 34px 12px 12px;
+      border: 2px solid #f59e0b;
+      background: linear-gradient(180deg, #fffbeb 0%, #fff7ed 100%);
+      box-shadow: 0 10px 22px rgba(245, 158, 11, 0.22);
+      animation: dropdownGlow 1.5s ease-in-out infinite alternate;
+    }
+
+    .action-dropdown::before {
+      content: attr(data-title);
+      position: absolute;
+      top: 8px;
+      left: 12px;
+      right: 12px;
+      display: block;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+      color: #92400e;
+      text-transform: uppercase;
+    }
+
+    .action-dropdown button {
+      background: #ffffff;
+      color: #7c2d12;
+      border: 2px solid #f59e0b;
+      box-shadow: 0 4px 10px rgba(245, 158, 11, 0.20);
+    }
+
+    .action-dropdown button:active {
+      transform: scale(0.98);
+    }
+
+    button.dropdown-active {
+      background: #f59e0b;
+      color: #111827;
+      box-shadow: 0 8px 18px rgba(245, 158, 11, 0.36);
+    }
+
+    @keyframes dropdownGlow {
+      from { box-shadow: 0 8px 18px rgba(245, 158, 11, 0.18); }
+      to { box-shadow: 0 12px 28px rgba(245, 158, 11, 0.38); }
+    }
+
     .pannu-signature {
       text-align: center;
       margin: 22px 0 8px;
@@ -383,7 +430,7 @@
        If they fail to load, the app still falls back to the built-in Word generator. -->
   <script defer src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<!-- APP_VERSION_v13_SAVE_OPTIONS_BLUETOOTH -->
+<!-- APP_VERSION_v14_HIGHLIGHTED_OPTIONS_CHECKED -->
 </head>
 <body>
   <header>
@@ -428,13 +475,13 @@
         <button id="clearBtn" class="danger">Clear all photos</button>
       </div>
 
-      <div id="saveOptions" class="bluetooth-options" style="display:none;">
+      <div id="saveOptions" class="bluetooth-options action-dropdown" data-title="Save options are open ↓" style="display:none;">
         <button id="savePicturesBtn" class="secondary">Pictures</button>
         <button id="saveWordBtn">Word file</button>
         <button id="saveBothBtn" class="secondary">Both</button>
       </div>
 
-      <div id="bluetoothOptions" class="bluetooth-options" style="display:none;">
+      <div id="bluetoothOptions" class="bluetooth-options action-dropdown" data-title="Bluetooth options are open ↓" style="display:none;">
         <button id="sharePicturesBtn" class="secondary">Resized pictures</button>
         <button id="shareWordBtn">Word file</button>
         <button id="shareBundleZipBtn" class="secondary">Pictures + Word file ZIP</button>
@@ -1258,16 +1305,26 @@
     }
 
 
+    function toggleActionDropdown(boxId, buttonId, otherBoxId, otherButtonId) {
+      const box = document.getElementById(boxId);
+      const button = document.getElementById(buttonId);
+      const otherBox = document.getElementById(otherBoxId);
+      const otherButton = document.getElementById(otherButtonId);
+      if (!box || !button) return;
+      const isClosed = box.style.display === 'none' || !box.style.display;
+      if (otherBox) otherBox.style.display = 'none';
+      if (otherButton) otherButton.classList.remove('dropdown-active');
+      box.style.display = isClosed ? 'grid' : 'none';
+      button.classList.toggle('dropdown-active', isClosed);
+      if (isClosed) box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
     document.getElementById('toggleSaveBtn').addEventListener('click', () => {
-      const box = document.getElementById('saveOptions');
-      if (!box) return;
-      box.style.display = box.style.display === 'none' || !box.style.display ? 'grid' : 'none';
+      toggleActionDropdown('saveOptions', 'toggleSaveBtn', 'bluetoothOptions', 'toggleBluetoothBtn');
     });
 
     document.getElementById('toggleBluetoothBtn').addEventListener('click', () => {
-      const box = document.getElementById('bluetoothOptions');
-      if (!box) return;
-      box.style.display = box.style.display === 'none' || !box.style.display ? 'grid' : 'none';
+      toggleActionDropdown('bluetoothOptions', 'toggleBluetoothBtn', 'saveOptions', 'toggleSaveBtn');
     });
 
     document.getElementById('savePicturesBtn').addEventListener('click', async () => {

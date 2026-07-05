@@ -1,8 +1,8 @@
 {
-  "name": "photo-to-word-android-v12",
-  "version": "1.0.12",
+  "name": "photo-to-word-android-v14",
+  "version": "1.0.14",
   "private": true,
-  "description": "Photo to Word Android app with faster processing, direct save, simple no-crop layout, and Bluetooth sharing.",
+  "description": "Photo to Word Android app with highlighted Save/Bluetooth options, direct save, resized pictures, editable Word, and Bluetooth sharing.",
   "scripts": {
     "sync": "cap sync android",
     "build:android": "cd android && ./gradlew assembleDebug"
