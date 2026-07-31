@@ -430,7 +430,7 @@
        If they fail to load, the app still falls back to the built-in Word generator. -->
   <script defer src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<!-- APP_VERSION_v14_HIGHLIGHTED_OPTIONS_CHECKED -->
+<!-- APP_VERSION_v15_FAST_PROCESSING_SAME_UI -->
 </head>
 <body>
   <header>
@@ -624,7 +624,91 @@
       return new Promise((resolve) => sourceCanvas.toBlob(resolve, type, quality));
     }
 
-    async function resizeImageFile(file) {
+    function makeObjectUrl(blob) {
+      return URL.createObjectURL(blob);
+    }
+
+    function safeRevokeObjectUrl(url) {
+      if (!url) return;
+      try { URL.revokeObjectURL(url); } catch (_) {}
+    }
+
+    function releaseItemUrls(item) {
+      if (!item) return;
+      safeRevokeObjectUrl(item.sourceUrl);
+      if (item.outputUrl && item.outputUrl !== item.sourceUrl) safeRevokeObjectUrl(item.outputUrl);
+    }
+
+    function supportsFastWorkerResize() {
+      return !!(window.Worker && window.OffscreenCanvas && window.createImageBitmap);
+    }
+
+    let fastResizeWorkerUrl = null;
+    function getFastResizeWorkerUrl() {
+      if (fastResizeWorkerUrl) return fastResizeWorkerUrl;
+      const code = `
+        self.onmessage = async (event) => {
+          const { id, file, maxSide, quality } = event.data;
+          let bitmap = null;
+          try {
+            bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+            const originalWidth = bitmap.width;
+            const originalHeight = bitmap.height;
+            const scale = Math.min(1, maxSide / Math.max(originalWidth, originalHeight));
+            const width = Math.max(1, Math.round(originalWidth * scale));
+            const height = Math.max(1, Math.round(originalHeight * scale));
+            const canvas = new OffscreenCanvas(width, height);
+            const ctx = canvas.getContext('2d', { alpha: false });
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, width, height);
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'medium';
+            ctx.drawImage(bitmap, 0, 0, originalWidth, originalHeight, 0, 0, width, height);
+            if (bitmap && typeof bitmap.close === 'function') bitmap.close();
+            const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality });
+            self.postMessage({ id, ok: true, blob, width, height, originalWidth, originalHeight });
+          } catch (err) {
+            try { if (bitmap && typeof bitmap.close === 'function') bitmap.close(); } catch (_) {}
+            self.postMessage({ id, ok: false, error: err && err.message ? err.message : String(err) });
+          }
+        };
+      `;
+      fastResizeWorkerUrl = URL.createObjectURL(new Blob([code], { type: 'application/javascript' }));
+      return fastResizeWorkerUrl;
+    }
+
+    function resizeImageFileFastWorker(file, worker, maxSide, quality) {
+      return new Promise((resolve, reject) => {
+        const id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()));
+        const cleanup = () => {
+          worker.removeEventListener('message', onMessage);
+          worker.removeEventListener('error', onError);
+        };
+        const onMessage = (event) => {
+          if (!event.data || event.data.id !== id) return;
+          cleanup();
+          if (!event.data.ok) return reject(new Error(event.data.error || 'Image resize failed.'));
+          const blob = event.data.blob;
+          resolve({
+            blob,
+            url: makeObjectUrl(blob),
+            width: event.data.width,
+            height: event.data.height,
+            originalWidth: event.data.originalWidth,
+            originalHeight: event.data.originalHeight
+          });
+        };
+        const onError = (err) => {
+          cleanup();
+          reject(err && err.message ? new Error(err.message) : err);
+        };
+        worker.addEventListener('message', onMessage);
+        worker.addEventListener('error', onError);
+        worker.postMessage({ id, file, maxSide, quality });
+      });
+    }
+
+    async function resizeImageFileMainThread(file) {
       const sourceUrl = URL.createObjectURL(file);
       let source = null;
       let originalWidth = 0;
@@ -657,24 +741,23 @@
         outCtx.fillStyle = '#ffffff';
         outCtx.fillRect(0, 0, w, h);
         outCtx.imageSmoothingEnabled = true;
-        outCtx.imageSmoothingQuality = 'high';
+        outCtx.imageSmoothingQuality = 'medium';
         outCtx.drawImage(source, 0, 0, originalWidth, originalHeight, 0, 0, w, h);
 
         if (source && typeof source.close === 'function') source.close();
         const blob = await canvasToBlob(out, 'image/jpeg', Number(qualityEl.value));
-        const dataUrl = await blobToDataURL(blob);
-        return { blob, dataUrl, width: w, height: h, originalWidth, originalHeight };
+        return { blob, url: makeObjectUrl(blob), width: w, height: h, originalWidth, originalHeight };
       } finally {
         URL.revokeObjectURL(sourceUrl);
       }
     }
 
     async function renderComposite(item) {
-      const base = await loadImage(item.sourceDataUrl);
+      const base = await loadImage(item.sourceUrl);
       const out = document.createElement('canvas');
       out.width = item.width;
       out.height = item.height;
-      const outCtx = out.getContext('2d');
+      const outCtx = out.getContext('2d', { alpha: false });
       outCtx.fillStyle = '#ffffff';
       outCtx.fillRect(0, 0, out.width, out.height);
       outCtx.drawImage(base, 0, 0, out.width, out.height);
@@ -682,19 +765,21 @@
       drawShapes(outCtx, item.shapes || []);
       drawTextBoxes(outCtx, item.textBoxes || [], -1, false);
       const blob = await canvasToBlob(out, 'image/jpeg', Number(qualityEl.value));
-      const dataUrl = await blobToDataURL(blob);
-      return { blob, dataUrl };
+      return { blob, url: makeObjectUrl(blob) };
     }
 
     async function refreshOutput(item) {
       if ((item.strokes && item.strokes.length) || (item.shapes && item.shapes.length) || (item.textBoxes && item.textBoxes.length)) {
+        const oldOutputUrl = item.outputUrl;
         const rendered = await renderComposite(item);
         item.outputBlob = rendered.blob;
-        item.outputDataUrl = rendered.dataUrl;
+        item.outputUrl = rendered.url;
         item.outputSize = rendered.blob.size;
+        if (oldOutputUrl && oldOutputUrl !== item.sourceUrl) safeRevokeObjectUrl(oldOutputUrl);
       } else {
+        if (item.outputUrl && item.outputUrl !== item.sourceUrl) safeRevokeObjectUrl(item.outputUrl);
         item.outputBlob = item.sourceBlob;
-        item.outputDataUrl = item.sourceDataUrl;
+        item.outputUrl = item.sourceUrl;
         item.outputSize = item.sourceBlob.size;
       }
     }
@@ -704,26 +789,44 @@
       if (!files.length) return;
 
       const total = files.length;
+      const startedAt = performance.now();
       let completed = 0;
       let failed = 0;
       let nextIndex = 0;
       const results = new Array(total);
-      const concurrency = Math.max(1, Math.min(3, total));
+      const maxSide = Number(maxSideEl.value);
+      const quality = Number(qualityEl.value);
+      const useWorkerResize = supportsFastWorkerResize();
+      const cores = navigator.hardwareConcurrency || 4;
+      const concurrency = useWorkerResize
+        ? Math.max(2, Math.min(6, cores, total))
+        : Math.max(1, Math.min(2, total));
+      const workers = useWorkerResize ? Array.from({ length: concurrency }, () => new Worker(getFastResizeWorkerUrl())) : [];
 
       setStatus(`Processing photos: 0/${total} processed`);
 
-      async function processOne(index) {
+      async function processOne(index, workerRef) {
         const file = files[index];
         try {
-          const resized = await resizeImageFile(file);
+          let resized;
+          if (workerRef) {
+            try {
+              resized = await resizeImageFileFastWorker(file, workerRef, maxSide, quality);
+            } catch (workerErr) {
+              console.warn('Fast worker resize failed, using normal resize fallback.', workerErr);
+              resized = await resizeImageFileMainThread(file);
+            }
+          } else {
+            resized = await resizeImageFileMainThread(file);
+          }
           results[index] = {
             id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()),
             originalFile: file,
             name: file.name,
             sourceBlob: resized.blob,
-            sourceDataUrl: resized.dataUrl,
+            sourceUrl: resized.url,
             outputBlob: resized.blob,
-            outputDataUrl: resized.dataUrl,
+            outputUrl: resized.url,
             originalSize: file.size,
             outputSize: resized.blob.size,
             width: resized.width,
@@ -741,23 +844,37 @@
         } finally {
           completed++;
           setStatus(`Processing photos: ${completed}/${total} processed`);
-          await new Promise(resolve => setTimeout(resolve, 0));
+          if (!workerRef) await new Promise(resolve => setTimeout(resolve, 0));
         }
       }
 
-      async function worker() {
+      async function runQueue(workerRef) {
         while (nextIndex < total) {
           const index = nextIndex++;
-          await processOne(index);
+          await processOne(index, workerRef);
         }
       }
 
-      await Promise.all(Array.from({ length: concurrency }, worker));
+      try {
+        if (useWorkerResize) {
+          await Promise.all(workers.map(runQueue));
+        } else {
+          await Promise.all(Array.from({ length: concurrency }, () => runQueue(null)));
+        }
+      } finally {
+        workers.forEach(w => w.terminate());
+      }
+
       const added = results.filter(Boolean);
       items.push(...added);
       fileInput.value = '';
       renderGallery();
-      setStatus(`Complete processing pictures`);
+      const seconds = ((performance.now() - startedAt) / 1000).toFixed(1);
+      if (failed) {
+        setStatus(`Complete processing pictures. ${added.length}/${total} processed, ${failed} failed in ${seconds}s.`);
+      } else {
+        setStatus(`Complete processing pictures`);
+      }
     });
 
     function renderGallery() {
@@ -772,7 +889,7 @@
         const card = document.createElement('div');
         card.className = 'thumb';
         card.innerHTML = `
-          <img src="${item.outputDataUrl}" alt="${item.name}">
+          <img src="${item.outputUrl}" alt="${item.name}">
           <div class="thumb-body">
             <div class="thumb-title">${index + 1}. ${escapeHtml(item.name)}</div>
             <div class="thumb-meta">
@@ -796,7 +913,8 @@
       if (downloadIndex !== null) downloadSingle(Number(downloadIndex));
       if (removeIndex !== null) {
         const idx = Number(removeIndex);
-        items.splice(idx, 1);
+        const removed = items.splice(idx, 1)[0];
+        releaseItemUrls(removed);
         if (currentIndex === idx) closeEditor();
         if (currentIndex > idx) currentIndex--;
         renderGallery();
@@ -834,7 +952,7 @@
       selectedBox = -1;
       editorWrap.style.display = 'block';
       const item = items[currentIndex];
-      editorImage = await loadImage(item.sourceDataUrl);
+      editorImage = await loadImage(item.sourceUrl);
       canvas.width = item.width;
       canvas.height = item.height;
       setMode('select');
@@ -1163,6 +1281,7 @@
     }
 
     document.getElementById('clearBtn').addEventListener('click', () => {
+      items.forEach(releaseItemUrls);
       items = [];
       closeEditor();
       renderGallery();
@@ -1815,7 +1934,7 @@
           const item = items[start + slot];
           if (!item) continue;
           await refreshOutput(item);
-          const img = await loadImage(item.outputDataUrl);
+          const img = await loadImage(item.outputUrl);
           pageItems.push({ item, img, aspect: getImageAspect(img) });
         }
 
